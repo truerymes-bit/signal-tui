@@ -100,8 +100,8 @@ func saveHistory(history map[string][]Message) {
 	if err != nil {
 		return
 	}
-	os.MkdirAll(configDir(), 0755)
-	os.WriteFile(historyPath(), data, 0644)
+	os.MkdirAll(configDir(), 0700)
+	os.WriteFile(historyPath(), data, 0600)
 }
 
 func loadConfig() (*Config, error) {
@@ -117,12 +117,12 @@ func loadConfig() (*Config, error) {
 }
 
 func saveConfig(c *Config) error {
-	os.MkdirAll(configDir(), 0755)
+	os.MkdirAll(configDir(), 0700)
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configPath(), data, 0644)
+	return os.WriteFile(configPath(), data, 0600)
 }
 
 type Contact struct {
@@ -696,7 +696,7 @@ func fetchAttachmentCmd(port int, account string, contact string, t time.Time, a
 		if err != nil {
 			return attachmentReadyMsg{contact: contact, time: t, att: att, err: err}
 		}
-		os.MkdirAll(attachmentCacheDir(), 0755)
+		os.MkdirAll(attachmentCacheDir(), 0700)
 		ext := filepath.Ext(att.Filename)
 		if ext == "" {
 			ext = ".bin"
@@ -706,7 +706,7 @@ func fetchAttachmentCmd(port int, account string, contact string, t time.Time, a
 			base = base[:len(base)-len(e)]
 		}
 		path := filepath.Join(attachmentCacheDir(), base+ext)
-		if err := os.WriteFile(path, raw, 0644); err != nil {
+		if err := os.WriteFile(path, raw, 0600); err != nil {
 			return attachmentReadyMsg{contact: contact, time: t, att: att, err: err}
 		}
 		return attachmentReadyMsg{contact: contact, time: t, att: att, path: path}
@@ -716,7 +716,7 @@ func fetchAttachmentCmd(port int, account string, contact string, t time.Time, a
 func saveAttachmentCmd(src string, att Attachment) tea.Cmd {
 	return func() tea.Msg {
 		destDir := filepath.Join(os.ExpandEnv("$HOME"), "Downloads", "signal-tui")
-		os.MkdirAll(destDir, 0755)
+		os.MkdirAll(destDir, 0700)
 		name := att.Filename
 		if name == "" {
 			name = filepath.Base(src)
@@ -731,7 +731,7 @@ func saveAttachmentCmd(src string, att Attachment) tea.Cmd {
 		if err != nil {
 			return saveResultMsg{err: err}
 		}
-		if err := os.WriteFile(dest, data, 0644); err != nil {
+		if err := os.WriteFile(dest, data, 0600); err != nil {
 			return saveResultMsg{err: err}
 		}
 		return saveResultMsg{path: dest}
@@ -744,7 +744,7 @@ type saveResultMsg struct {
 }
 
 func debugLog(format string, args ...interface{}) {
-	f, err := os.OpenFile(filepath.Join(cacheDir(), "debug.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(filepath.Join(cacheDir(), "debug.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return
 	}
@@ -1596,8 +1596,8 @@ func (m model) viewChat() string {
 }
 
 func main() {
-	os.MkdirAll(cacheDir(), 0755)
-	os.MkdirAll(attachmentCacheDir(), 0755)
+	os.MkdirAll(cacheDir(), 0700)
+	os.MkdirAll(attachmentCacheDir(), 0700)
 
 	m := newModel()
 	p := tea.NewProgram(m)
