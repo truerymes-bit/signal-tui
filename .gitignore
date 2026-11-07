@@ -1,0 +1,5 @@
+signal-tui
+*.bak
+*.bak.*
+*.log
+.cache/
