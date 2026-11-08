@@ -235,8 +235,10 @@ func newModel() model {
 	ti := textarea.New()
 	ti.Placeholder = "Type a message..."
 	ti.CharLimit = 4096
-	ti.SetWidth(40)
+	ti.SetWidth(20)
 	ti.DynamicHeight = true
+	ti.ShowLineNumbers = false
+	ti.Prompt = ""
 	ti.MinHeight = 1
 	ti.MaxHeight = 4
 	km := ti.KeyMap
