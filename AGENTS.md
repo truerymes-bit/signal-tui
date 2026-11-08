@@ -33,3 +33,4 @@ Terminal UI client for Signal, written in Go. It drives an external `signal-cli`
 - Never commit `.bak` files, the `signal-tui` binary, logs, or caches.
 - Do NOT commit until the user has tested the change.
 - Before finishing a change, run build, vet, and the gofmt check and report the real output.
+- Work only on the current feature branch. Never run `git checkout .`, `git restore .`, or `git reset --hard` without asking.
