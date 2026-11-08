@@ -1903,11 +1903,17 @@ func (m model) viewChat() string {
 		if msg.IsMe {
 			style = m.theme.MsgOut
 		}
-		for _, l := range msgLines {
+		for i, l := range msgLines {
+			if i == 0 && !msg.IsMe && len(m.theme.P.Sender) > 0 {
+				rest := strings.TrimPrefix(l, prefix)
+				c := m.theme.P.Sender[nameHash(name)%len(m.theme.P.Sender)]
+				plain := style.UnsetWidth().UnsetPadding()
+				l = plain.Foreground(c).Bold(true).Render(prefix) + plain.Render(rest)
+			}
 			chatContent.WriteString(style.Width(renderWidth).Render(l) + "\n")
 		}
 		for _, p := range msg.LocalPaths {
-			chatContent.WriteString("  [Attachment: " + filepath.Base(p) + "]\n")
+			chatContent.WriteString(m.theme.Base().Render("  [Attachment: "+filepath.Base(p)+"]") + "\n")
 		}
 		if len(msg.Reactions) > 0 {
 			var parts []string
@@ -1920,14 +1926,14 @@ func (m model) viewChat() string {
 				}
 			}
 			if len(parts) > 0 {
-				chatContent.WriteString("  " + lipgloss.NewStyle().Foreground(m.theme.P.Tick).Render(strings.Join(parts, "  ")) + "\n")
+				chatContent.WriteString(m.theme.Base().Foreground(m.theme.P.Tick).Render("  "+strings.Join(parts, "  ")) + "\n")
 			}
 		}
 		if msg.IsMe {
 			if msg.Receipt >= 1 {
-				chatContent.WriteString("  " + lipgloss.NewStyle().Foreground(m.theme.P.Tick).Render(m.theme.G.Read) + "\n")
+				chatContent.WriteString(m.theme.Base().Foreground(m.theme.P.Tick).Render("  "+m.theme.G.Read) + "\n")
 			} else if msg.Sent {
-				chatContent.WriteString("  " + lipgloss.NewStyle().Foreground(m.theme.P.Tick).Render(m.theme.G.Sent) + "\n")
+				chatContent.WriteString(m.theme.Base().Foreground(m.theme.P.Tick).Render("  "+m.theme.G.Sent) + "\n")
 			}
 		}
 		chatContent.WriteString("\n")
@@ -2074,6 +2080,17 @@ func wrapHanging(prefix, text string, width int) []string {
 		result = append(result, prefix)
 	}
 	return result
+}
+
+func nameHash(s string) int {
+	h := 0
+	for _, r := range s {
+		h = h*31 + int(r)
+	}
+	if h < 0 {
+		h = -h
+	}
+	return h
 }
 
 func main() {
