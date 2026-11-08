@@ -151,6 +151,11 @@ func (t Theme) Base() lipgloss.Style {
 }
 
 func (t Theme) Status(w int, left, right string) string {
+	maxLeft := w - 2 - lipgloss.Width(right) - 1
+	if maxLeft < 1 {
+		maxLeft = 1
+	}
+	left = truncateToWidth(left, maxLeft)
 	gap := w - 2 - lipgloss.Width(left) - lipgloss.Width(right)
 	if gap < 1 {
 		gap = 1

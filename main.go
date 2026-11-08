@@ -235,12 +235,12 @@ func newModel() model {
 	ti := textarea.New()
 	ti.Placeholder = "Type a message..."
 	ti.CharLimit = 4096
-	ti.SetWidth(20)
 	ti.DynamicHeight = true
 	ti.ShowLineNumbers = false
 	ti.Prompt = ""
 	ti.MinHeight = 1
 	ti.MaxHeight = 4
+	ti.SetWidth(20)
 	km := ti.KeyMap
 	km.InsertNewline = key.NewBinding()
 	ti.KeyMap = km
@@ -2005,7 +2005,7 @@ func (m model) viewChat() string {
 			lines = append(lines, "")
 		}
 		padded := strings.Join(lines, "\n")
-		msgsPane = lipgloss.NewStyle().Height(msgsH).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(padded)
+		msgsPane = lipgloss.NewStyle().Width(cw).Height(msgsH).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(padded)
 	}
 
 	composer := lipgloss.NewStyle().Width(cw).Height(composerH).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(m.input.View())
