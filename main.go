@@ -1790,7 +1790,7 @@ type layout struct {
 	LeftMargin   int
 }
 
-func computeLayout(w, h int) layout {
+func computeLayout(w, h int, inputH ...int) layout {
 	l := layout{Width: w, Height: h}
 	cw := w
 	if cw > 160 {
@@ -1831,14 +1831,27 @@ func computeLayout(w, h int) layout {
 		bodyH = 1
 	}
 	l.BodyHeight = bodyH
-	composerH := 3
-	msgsH := bodyH - composerH - 1
+	ih := 1
+	if len(inputH) > 0 && inputH[0] > 0 {
+		ih = inputH[0]
+	}
+	composerH := ih + 2
+	if composerH < 3 {
+		composerH = 3
+	}
+	if composerH > bodyH-1 && bodyH > 1 {
+		composerH = bodyH - 1
+	}
+	if composerH < 1 {
+		composerH = 1
+	}
+	msgsH := bodyH - composerH
 	if msgsH < 1 {
 		msgsH = 1
 	}
 	l.MsgsHeight = msgsH
 	l.ComposerH = composerH
-	iw := chatW - 5
+	iw := chatW - 4
 	if iw < 1 {
 		iw = 1
 	}
@@ -1937,12 +1950,17 @@ func (m model) viewChat() string {
 		box := lipgloss.NewStyle().Border(m.theme.Border).BorderForeground(m.theme.P.Accent).Padding(1, 2).Render(helpText)
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 	}
-	if m.width < 30 || m.height < 8 {
-		msg := truncateToWidth("Terminal too small (need at least 30x8)", m.width)
+	if m.width < 36 || m.height < 8 {
+		msg := truncateToWidth("Terminal too small (need at least 36x8)", m.width)
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, msg)
 	}
 	l := computeLayout(m.width, m.height)
 	m.input.SetWidth(l.InputWidth)
+	l = computeLayout(m.width, m.height, m.input.Height())
+	if l.ComposerH-2 > 0 {
+		m.input.SetHeight(l.ComposerH - 2)
+	}
+	l = computeLayout(m.width, m.height, m.input.Height())
 	sw, cw, bodyH := l.SidebarWidth, l.ChatWidth, l.BodyHeight
 
 	// Build contact list, truncating names to the sidebar inner width.
@@ -2050,21 +2068,9 @@ func (m model) viewChat() string {
 		chatContent.WriteString(lipgloss.Wrap(m.typing+" is typing...", tw, "") + "\n")
 	}
 
-	// messages pane (bodyH-3 rows) + input (3 rows)
-	composerH := m.input.Height() + 2
-	if composerH > bodyH-1 {
-		composerH = bodyH - 1
-	}
-	if composerH < 3 {
-		composerH = 3
-		if composerH > bodyH {
-			composerH = bodyH
-		}
-	}
-	msgsH := bodyH - composerH - 1
-	if msgsH < 1 {
-		msgsH = 1
-	}
+	// messages pane + input pane
+	composerH := l.ComposerH
+	msgsH := l.MsgsHeight
 	var msgsPane string
 	if m.fpActive {
 		wrapWidth := cw - 4
