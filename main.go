@@ -1683,10 +1683,9 @@ func (m model) View() tea.View {
 			v = tea.NewView(content)
 			v.AltScreen = true
 		}
-		if w, h := lipgloss.Size(content); w > m.width || h > m.height {
-			log.Printf("layout overflow: got %dx%d, have %dx%d", w, h, m.width, m.height)
-			debugLog("layout overflow: got %dx%d, have %dx%d", w, h, m.width, m.height)
-		}
+		content = fit(content, m.width, m.height)
+		v = tea.NewView(content)
+		v.AltScreen = true
 	}
 	if m.theme.P.Bg != nil {
 		v.BackgroundColor = m.theme.P.Bg
@@ -1777,6 +1776,98 @@ func leftMargin(m model) int {
 	return (m.width - contentWidth(m)) / 2
 }
 
+// layout holds the computed dimensions for a terminal size.
+type layout struct {
+	Width        int
+	Height       int
+	ContentWidth int
+	SidebarWidth int
+	ChatWidth    int
+	BodyHeight   int
+	MsgsHeight   int
+	ComposerH    int
+	InputWidth   int
+	LeftMargin   int
+}
+
+func computeLayout(w, h int) layout {
+	l := layout{Width: w, Height: h}
+	cw := w
+	if cw > 160 {
+		cw = 160
+	}
+	if cw < 8 {
+		cw = w
+	}
+	if cw < 1 {
+		cw = 1
+	}
+	l.ContentWidth = cw
+	sw := cw / 4
+	if sw < 24 {
+		sw = 24
+	}
+	if sw > 36 {
+		sw = 36
+	}
+	if sw > cw-4 {
+		sw = cw - 4
+		if sw < 4 {
+			sw = 4
+		}
+	}
+	chatW := cw - sw
+	if chatW < 4 {
+		chatW = 4
+		sw = cw - chatW
+		if sw < 4 {
+			sw = 4
+		}
+	}
+	l.SidebarWidth = sw
+	l.ChatWidth = chatW
+	bodyH := h - 1
+	if bodyH < 1 {
+		bodyH = 1
+	}
+	l.BodyHeight = bodyH
+	composerH := 3
+	msgsH := bodyH - composerH - 1
+	if msgsH < 1 {
+		msgsH = 1
+	}
+	l.MsgsHeight = msgsH
+	l.ComposerH = composerH
+	iw := chatW - 5
+	if iw < 1 {
+		iw = 1
+	}
+	l.InputWidth = iw
+	lm := (w - cw) / 2
+	if lm < 0 {
+		lm = 0
+	}
+	l.LeftMargin = lm
+	return l
+}
+
+// fit pads or truncates content to exactly w x h.
+func fit(content string, w, h int) string {
+	lines := strings.Split(content, "\n")
+	if len(lines) > h {
+		lines = lines[len(lines)-h:]
+	}
+	for len(lines) < h {
+		lines = append(lines, "")
+	}
+	for i := range lines {
+		if lipgloss.Width(lines[i]) > w {
+			lines[i] = truncateToWidth(lines[i], w)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 func (m model) sizes() (sw, cw, bodyH int) {
 	w := contentWidth(m)
 	if w < 8 {
@@ -1847,10 +1938,12 @@ func (m model) viewChat() string {
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 	}
 	if m.width < 30 || m.height < 8 {
-		msg := "Terminal too small (need at least 30x8)"
+		msg := truncateToWidth("Terminal too small (need at least 30x8)", m.width)
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, msg)
 	}
-	sw, cw, bodyH := m.sizes()
+	l := computeLayout(m.width, m.height)
+	m.input.SetWidth(l.InputWidth)
+	sw, cw, bodyH := l.SidebarWidth, l.ChatWidth, l.BodyHeight
 
 	// Build contact list, truncating names to the sidebar inner width.
 	contactLines := make([]string, 0, len(m.contacts))
@@ -1959,10 +2052,16 @@ func (m model) viewChat() string {
 
 	// messages pane (bodyH-3 rows) + input (3 rows)
 	composerH := m.input.Height() + 2
+	if composerH > bodyH-1 {
+		composerH = bodyH - 1
+	}
 	if composerH < 3 {
 		composerH = 3
+		if composerH > bodyH {
+			composerH = bodyH
+		}
 	}
-	msgsH := bodyH - composerH
+	msgsH := bodyH - composerH - 1
 	if msgsH < 1 {
 		msgsH = 1
 	}
@@ -2091,6 +2190,9 @@ func nameHash(s string) int {
 func main() {
 	os.MkdirAll(cacheDir(), 0700)
 	os.MkdirAll(attachmentCacheDir(), 0700)
+	if f, err := tea.LogToFile(filepath.Join(cacheDir(), "debug.log"), "debug"); err == nil {
+		defer f.Close()
+	}
 
 	// Resolve signal-cli: prefer a working binary over a broken one on PATH.
 	// Prefer the newest working signal-cli. /usr/local/bin has 0.14.9 (supports v11 config),
