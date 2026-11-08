@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -215,6 +216,7 @@ type model struct {
 	pendingAtt        Attachment
 
 	theme        Theme
+	themeName    string
 	isDark       bool
 	colorProfile colorprofile.Profile
 
@@ -246,6 +248,7 @@ func newModel() model {
 		status:       "Starting...",
 		history:      make(map[string][]Message),
 		theme:        NewTheme(profile, true),
+		themeName:    "",
 		isDark:       true,
 		colorProfile: profile,
 	}
@@ -1184,6 +1187,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
+		case "ctrl+t":
+			if m.fpActive {
+				return m, nil
+			}
+			keys := namedThemeKeys()
+			if len(keys) == 0 {
+				return m, nil
+			}
+			idx := 0
+			if m.themeName != "" {
+				for i, k := range keys {
+					if k == m.themeName {
+						idx = (i + 1) % len(keys)
+						break
+					}
+				}
+			}
+			m.themeName = keys[idx]
+			m.theme = ThemeForName(m.themeName)
+			if m.themeName != "" {
+				m.status = "Theme: " + m.themeName
+			} else {
+				m.status = ""
+			}
+			return m, nil
 		case "ctrl+h":
 			m.showHelp = !m.showHelp
 			return m, nil
@@ -1277,7 +1305,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
-		case "r", "ctrl+r":
+		case "ctrl+r":
 			if m.focus == 1 && m.input.Value() != "" {
 				break
 			}
@@ -1314,7 +1342,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, sendReactionCmd(m.port, m.account, recipient, "👍", targetAuthor, last.Time.UnixMilli(), false)
 			}
 			return m, nil
-		case "R":
+		case "ctrl+shift+r":
 			if m.focus == 1 && m.input.Value() != "" {
 				break
 			}
@@ -1385,6 +1413,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// namedThemeKeys returns the named themes in a stable, deterministic order.
+func namedThemeKeys() []string {
+	names := make([]string, 0, len(NamedThemes))
+	for k := range NamedThemes {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return names
+}
+
 func (m model) View() tea.View {
 	var content string
 	if m.width == 0 {
@@ -1406,6 +1444,15 @@ func (m model) View() tea.View {
 	v := tea.NewView(content)
 	v.AltScreen = true
 	if m.width > 0 {
+		if lm := leftMargin(m); lm > 0 && content != "Loading..." {
+			lines := strings.Split(content, "\n")
+			for i := range lines {
+				lines[i] = strings.Repeat(" ", lm) + lines[i]
+			}
+			content = strings.Join(lines, "\n")
+			v = tea.NewView(content)
+			v.AltScreen = true
+		}
 		if w, h := lipgloss.Size(content); w > m.width || h > m.height {
 			log.Printf("layout overflow: got %dx%d, have %dx%d", w, h, m.width, m.height)
 			debugLog("layout overflow: got %dx%d, have %dx%d", w, h, m.width, m.height)
@@ -1451,21 +1498,66 @@ func (m model) viewStartingDaemon() string {
 	return b.String()
 }
 
+func contentWidth(m model) int {
+	w := m.width
+	if w > 160 {
+		w = 160
+	}
+	if w < 8 {
+		w = m.width
+	}
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+func leftMargin(m model) int {
+	return (m.width - contentWidth(m)) / 2
+}
+
 func (m model) sizes() (sw, cw, bodyH int) {
-	sw = clamp(m.width/4, 24, 36)
-	if sw > m.width {
-		sw = m.width / 4
+	w := contentWidth(m)
+	if w < 8 {
+		if w <= 1 {
+			sw = 1
+			cw = 1
+		} else {
+			sw = 1
+			cw = w - 1
+		}
+	} else {
+		sw = w / 4
 		if sw < 12 {
 			sw = 12
 		}
-	}
-	cw = m.width - sw
-	if cw < 20 {
-		cw = 20
+		if sw > 36 {
+			sw = 36
+		}
+		if sw > w-4 {
+			sw = w - 4
+			if sw < 4 {
+				sw = 4
+			}
+		}
+		cw = w - sw
+		if cw < 4 {
+			cw = 4
+			sw = w - cw
+			if sw < 4 {
+				sw = 4
+			}
+		}
 	}
 	bodyH = m.height - 1
-	if bodyH < 5 {
-		bodyH = 5
+	if bodyH < 1 {
+		bodyH = 1
+	}
+	if bodyH > m.height && m.height > 0 {
+		bodyH = m.height
+		if bodyH < 1 {
+			bodyH = 1
+		}
 	}
 	return
 }
@@ -1478,48 +1570,92 @@ func (m model) viewChat() string {
 		if !isSupportedAttachment(att) {
 			keys = "s: save to ~/Downloads/signal-tui  d/Esc: dismiss"
 		}
-		box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(m.theme.P.Accent).Padding(1, 2).Render(title + "\n" + keys)
+		box := lipgloss.NewStyle().Border(m.theme.Border).BorderForeground(m.theme.P.Accent).Padding(1, 2).Render(title + "\n" + keys)
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 	}
 	if m.confirmDelete && m.selected < len(m.contacts) {
 		c := m.contacts[m.selected]
 		title := "Delete Conversation?"
 		body := "Delete conversation with " + c.DisplayName() + "?\n\nCtrl+D  Confirm delete\nEsc     Cancel"
-		box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(m.theme.P.Red).Padding(1, 2).Render(title + "\n\n" + body)
+		box := lipgloss.NewStyle().Border(m.theme.Border).BorderForeground(m.theme.P.Red).Padding(1, 2).Render(title + "\n\n" + body)
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 	}
 	if m.showHelp {
-		helpText := "Help\n\nCtrl+A  Attach file\nCtrl+H  Toggle help\nEsc     Close\nCtrl+D  Delete conversation\nCtrl+O  Open last attachment\nr/Ctrl+R React 👍\nR       Remove 👍\nTab     Switch pane\n↑/↓     Navigate contacts\nEnter   Send message\nCtrl+C  Quit"
-		box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(m.theme.P.Accent).Padding(1, 2).Render(helpText)
+		helpText := "Help\n\nCtrl+A  Attach file\nCtrl+H  Toggle help\nEsc     Close\nCtrl+D  Delete conversation\nCtrl+O  Open last attachment\nCtrl+R  React (+1)\nCtrl+Shift+R  Remove (+1)\nTab     Switch pane\n↑/↓     Navigate contacts\nEnter   Send message\nCtrl+C  Quit\nCtrl+T  Next theme"
+		box := lipgloss.NewStyle().Border(m.theme.Border).BorderForeground(m.theme.P.Accent).Padding(1, 2).Render(helpText)
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+	}
+	if m.width < 30 || m.height < 8 {
+		msg := "Terminal too small (need at least 30x8)"
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, msg)
 	}
 	sw, cw, bodyH := m.sizes()
 
-	var sb strings.Builder
-	sb.WriteString(m.theme.Title.Render("Contacts") + "\n")
+	// Build contact list, truncating names to the sidebar inner width.
+	contactLines := make([]string, 0, len(m.contacts))
 	for i, c := range m.contacts {
 		line := c.DisplayName()
 		if c.Given == "" && c.Name == "" {
 			line = prettyNumber(c.Number)
 		}
+		line = truncateToWidth(line, sw-4)
 		if i == m.selected {
 			line = m.theme.ChatItemSel.Render(line)
 		} else {
 			line = m.theme.ChatItem.Render(line)
 		}
-		sb.WriteString(line + "\n")
+		contactLines = append(contactLines, line)
+	}
+
+	// Scroll the sidebar window to keep the selected contact visible.
+	visibleContacts := bodyH - 3 // title takes one row; borders take two
+	if visibleContacts < 1 {
+		visibleContacts = 1
+	}
+	start := 0
+	if len(contactLines) > visibleContacts {
+		start = m.selected - visibleContacts/2
+		if start < 0 {
+			start = 0
+		}
+		if start+visibleContacts > len(contactLines) {
+			start = len(contactLines) - visibleContacts
+		}
+		if start < 0 {
+			start = 0
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString(m.theme.Title.Render("Contacts") + "\n")
+	for i := start; i < start+visibleContacts && i < len(contactLines); i++ {
+		sb.WriteString(contactLines[i] + "\n")
 	}
 	sidebar := lipgloss.NewStyle().Width(sw).Height(bodyH).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(sb.String())
 
 	var chatContent strings.Builder
+	bubbleWidth := cw - 4
+	if bubbleWidth < 1 {
+		bubbleWidth = 1
+	}
+	renderWidth := bubbleWidth
 	for _, msg := range m.messages {
-		prefix := ""
-		if msg.IsMe {
-			prefix = m.theme.MsgOut.Render("You: ")
-		} else {
-			prefix = m.theme.MsgIn.Render(msg.From + ": ")
+		name := "You"
+		if !msg.IsMe {
+			name = msg.From
+			if name == "" {
+				name = "Unknown"
+			}
 		}
-		chatContent.WriteString(prefix + msg.Text + "\n")
+		prefix := name + ": "
+		msgLines := wrapHanging(prefix, msg.Text, renderWidth)
+		style := m.theme.MsgIn
+		if msg.IsMe {
+			style = m.theme.MsgOut
+		}
+		for _, l := range msgLines {
+			chatContent.WriteString(style.Width(renderWidth).Render(l) + "\n")
+		}
 		for _, p := range msg.LocalPaths {
 			chatContent.WriteString("  [Attachment: " + filepath.Base(p) + "]\n")
 		}
@@ -1544,9 +1680,14 @@ func (m model) viewChat() string {
 				chatContent.WriteString("  " + m.theme.G.Sent + "\n")
 			}
 		}
+		chatContent.WriteString("\n")
 	}
 	if m.typing != "" {
-		chatContent.WriteString(m.typing + " is typing...\n")
+		tw := cw - 4
+		if tw < 1 {
+			tw = 1
+		}
+		chatContent.WriteString(lipgloss.Wrap(m.typing+" is typing...", tw, "") + "\n")
 	}
 
 	// messages pane (bodyH-3 rows) + input (3 rows)
@@ -1556,11 +1697,32 @@ func (m model) viewChat() string {
 	}
 	var msgsPane string
 	if m.fpActive {
-		msgsPane = lipgloss.NewStyle().Width(cw).Height(msgsH).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(m.fp.View())
+		wrapWidth := cw - 4
+		if wrapWidth < 1 {
+			wrapWidth = 1
+		}
+		fpLines := strings.Split(m.fp.View(), "\n")
+		if len(fpLines) > msgsH-2 {
+			fpLines = fpLines[:msgsH-2]
+			if len(fpLines) < 1 {
+				fpLines = []string{""}
+			}
+		}
+		for i := range fpLines {
+			if lipgloss.Width(fpLines[i]) > wrapWidth {
+				fpLines[i] = truncateToWidth(fpLines[i], wrapWidth)
+			}
+		}
+		msgsPane = lipgloss.NewStyle().Width(cw).Height(msgsH).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(strings.Join(fpLines, "\n"))
 	} else {
 		// truncate chat content to fit msgsH
-		rendered := lipgloss.NewStyle().Width(cw - 4).Render(chatContent.String())
-		lines := strings.Split(rendered, "\n")
+		wrapWidth := cw - 4
+		if wrapWidth < 1 {
+			wrapWidth = 1
+		}
+		// chatContent is already wrapped per-message (hanging indent), so do not
+		// re-wrap here — re-wrapping would drop the indent on continuation lines.
+		lines := strings.Split(strings.TrimRight(chatContent.String(), "\n"), "\n")
 		inner := msgsH - 2 // account for border top/bottom
 		if inner < 1 {
 			inner = 1
@@ -1568,8 +1730,11 @@ func (m model) viewChat() string {
 		if len(lines) > inner {
 			lines = lines[len(lines)-inner:]
 		}
+		for len(lines) < inner {
+			lines = append(lines, "")
+		}
 		padded := strings.Join(lines, "\n")
-		msgsPane = lipgloss.NewStyle().Width(cw).Height(msgsH).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(padded)
+		msgsPane = lipgloss.NewStyle().Height(msgsH).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(padded)
 	}
 
 	composer := lipgloss.NewStyle().Width(cw).Height(3).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(m.input.View())
@@ -1586,13 +1751,79 @@ func (m model) viewChat() string {
 	}
 	attachLabel := m.theme.Hint("^A", "attach")
 	helpLabel := m.theme.Hint("^H", "help")
-	statusBar := m.theme.Status(m.width, statusText, attachLabel+"  "+helpLabel)
+	statusBar := m.theme.Status(contentWidth(m), statusText, attachLabel+"  "+helpLabel)
 
 	// combine sidebar + chat column (no status bar inside)
 	chatColumn := lipgloss.JoinVertical(lipgloss.Left, msgsPane, composer)
 	topRow := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, chatColumn)
 	out := lipgloss.JoinVertical(lipgloss.Left, topRow, statusBar)
+	if w, h := lipgloss.Size(out); w > m.width || h > m.height {
+		log.Printf("layout overflow: got %dx%d, have %dx%d", w, h, m.width, m.height)
+	}
 	return out
+}
+
+// truncateToWidth shortens s so its visible width is at most width,
+// appending an ellipsis when truncation occurs.
+func truncateToWidth(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	target := width - 1
+	if target < 1 {
+		target = 1
+	}
+	var b strings.Builder
+	cur := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if rw < 1 {
+			rw = 1
+		}
+		if cur+rw > target {
+			break
+		}
+		b.WriteRune(r)
+		cur += rw
+	}
+	return b.String() + "…"
+}
+
+// wrapHanging splits text into lines with a hanging indent: the first line
+// starts with prefix, continuation lines are indented to align under the
+// text that follows prefix.
+func wrapHanging(prefix, text string, width int) []string {
+	indent := strings.Repeat(" ", lipgloss.Width(prefix))
+	cap := width - 2 - lipgloss.Width(prefix)
+	if cap < 1 {
+		cap = 1
+	}
+	var result []string
+	firstPara := true
+	for _, para := range strings.Split(text, "\n") {
+		wrapped := lipgloss.Wrap(para, cap, "")
+		wlines := strings.Split(wrapped, "\n")
+		if len(wlines) == 0 {
+			wlines = []string{""}
+		}
+		for i, l := range wlines {
+			if firstPara && i == 0 {
+				result = append(result, prefix+l)
+			} else if l == "" {
+				result = append(result, "")
+			} else {
+				result = append(result, indent+l)
+			}
+		}
+		firstPara = false
+	}
+	if len(result) == 0 {
+		result = append(result, prefix)
+	}
+	return result
 }
 
 func main() {
