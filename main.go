@@ -223,6 +223,7 @@ type model struct {
 
 	theme        Theme
 	themeName    string
+	themeIdx     int
 	isDark       bool
 	colorProfile colorprofile.Profile
 
@@ -231,6 +232,18 @@ type model struct {
 }
 
 var daemonCmd *exec.Cmd
+
+func applyTextareaStyles(m *model) {
+	st := m.input.Styles()
+	st.Focused.Base = m.theme.Base()
+	st.Focused.Text = m.theme.Base().Foreground(m.theme.P.Text)
+	st.Focused.CursorLine = m.theme.Base()
+	st.Focused.Placeholder = m.theme.Base().Foreground(m.theme.P.Muted)
+	st.Focused.Prompt = m.theme.Base().Foreground(m.theme.P.Accent)
+	st.Focused.EndOfBuffer = m.theme.Base()
+	st.Blurred = st.Focused
+	m.input.SetStyles(st)
+}
 
 func newModel() model {
 	ti := textarea.New()
@@ -266,15 +279,7 @@ func newModel() model {
 		isDark:       true,
 		colorProfile: profile,
 	}
-	st := m.input.Styles()
-	st.Focused.Base = m.theme.Base()
-	st.Focused.Text = m.theme.Base().Foreground(m.theme.P.Text)
-	st.Focused.CursorLine = m.theme.Base()
-	st.Focused.Placeholder = m.theme.Base().Foreground(m.theme.P.Muted)
-	st.Focused.Prompt = m.theme.Base().Foreground(m.theme.P.Accent)
-	st.Focused.EndOfBuffer = m.theme.Base()
-	st.Blurred = st.Focused
-	m.input.SetStyles(st)
+	applyTextareaStyles(&m)
 	if _, err := exec.LookPath("signal-cli"); err != nil {
 		m.state = stateMissingDep
 		m.port = findAvailablePort(8081)
@@ -1063,11 +1068,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.ColorProfileMsg:
 		m.colorProfile = msg.Profile
-		m.theme = NewTheme(msg.Profile, m.isDark)
+		if m.themeName != "" {
+			m.theme = ThemeForName(m.themeName)
+		} else {
+			m.theme = NewTheme(msg.Profile, m.isDark)
+		}
+		applyTextareaStyles(&m)
 		return m, nil
 	case tea.BackgroundColorMsg:
 		m.isDark = msg.IsDark()
-		m.theme = NewTheme(m.colorProfile, m.isDark)
+		if m.themeName != "" {
+			m.theme = ThemeForName(m.themeName)
+		} else {
+			m.theme = NewTheme(m.colorProfile, m.isDark)
+		}
+		applyTextareaStyles(&m)
 		return m, nil
 
 	case daemonReadyMsg:
@@ -1440,7 +1455,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.themeName = keys[idx]
+			m.themeIdx = idx
 			m.theme = ThemeForName(m.themeName)
+			applyTextareaStyles(&m)
 			if m.themeName != "" {
 				m.status = "Theme: " + m.themeName
 			} else {
@@ -1696,8 +1713,12 @@ func (m model) View() tea.View {
 		v = tea.NewView(content)
 		v.AltScreen = true
 	}
-	if m.theme.P.Bg != nil {
-		v.BackgroundColor = m.theme.P.Bg
+	bg := m.theme.P.Bg
+	if bg == nil {
+		bg = m.theme.P.InBg
+	}
+	if bg != nil {
+		v.BackgroundColor = bg
 	}
 	return v
 }
