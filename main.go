@@ -237,9 +237,9 @@ func newModel() model {
 	ti.CharLimit = 4096
 	ti.DynamicHeight = true
 	ti.ShowLineNumbers = false
-	ti.Prompt = ""
+	ti.Prompt = "> "
 	ti.MinHeight = 1
-	ti.MaxHeight = 4
+	ti.MaxHeight = 5
 	ti.SetWidth(20)
 	km := ti.KeyMap
 	km.InsertNewline = key.NewBinding()
@@ -1038,12 +1038,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		_, cw, _ := m.sizes()
-		iw := cw - 2
-		if iw < 10 {
-			iw = 10
+		iw := cw - 5
+		if iw < 1 {
+			iw = 1
 		}
 		m.input.SetWidth(iw)
-		m.input.SetHeight(1)
 		h := m.height * 3 / 10
 		if h < 5 {
 			h = 5
