@@ -21,7 +21,8 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/filepicker"
-	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
@@ -205,7 +206,7 @@ type model struct {
 	history       map[string][]Message
 	typing        string
 	confirmDelete bool
-	input         textinput.Model
+	input         textarea.Model
 	focus         int
 	width         int
 	height        int
@@ -231,10 +232,16 @@ type model struct {
 var daemonCmd *exec.Cmd
 
 func newModel() model {
-	ti := textinput.New()
+	ti := textarea.New()
 	ti.Placeholder = "Type a message..."
 	ti.CharLimit = 4096
-	ti.SetWidth(60)
+	ti.SetWidth(40)
+	ti.DynamicHeight = true
+	ti.MinHeight = 1
+	ti.MaxHeight = 4
+	km := ti.KeyMap
+	km.InsertNewline = key.NewBinding()
+	ti.KeyMap = km
 
 	fp := filepicker.New()
 	fp.CurrentDirectory = os.ExpandEnv("$HOME")
@@ -1028,11 +1035,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		w := m.width*3/4 - 6
-		if w < 10 {
-			w = 10
+		_, cw, _ := m.sizes()
+		iw := cw - 2
+		if iw < 10 {
+			iw = 10
 		}
-		m.input.SetWidth(w)
+		m.input.SetWidth(iw)
+		m.input.SetHeight(1)
 		h := m.height * 3 / 10
 		if h < 5 {
 			h = 5
@@ -1947,7 +1956,11 @@ func (m model) viewChat() string {
 	}
 
 	// messages pane (bodyH-3 rows) + input (3 rows)
-	msgsH := bodyH - 3
+	composerH := m.input.Height() + 2
+	if composerH < 3 {
+		composerH = 3
+	}
+	msgsH := bodyH - composerH
 	if msgsH < 1 {
 		msgsH = 1
 	}
@@ -1993,7 +2006,7 @@ func (m model) viewChat() string {
 		msgsPane = lipgloss.NewStyle().Height(msgsH).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(padded)
 	}
 
-	composer := lipgloss.NewStyle().Width(cw).Height(3).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(m.input.View())
+	composer := lipgloss.NewStyle().Width(cw).Height(composerH).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(m.input.View())
 
 	statusText := m.status
 	if m.typing != "" {
