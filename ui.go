@@ -50,6 +50,7 @@ func NewPalette(p colorprofile.Profile, isDark bool) Palette {
 		Border:   ld(lipgloss.Color("#A9B1D6"), lipgloss.Color("#3B4261")),
 		SelBg:    ld(lipgloss.Color("#D9D9D9"), lipgloss.Color("#283457")),
 		InBg:     ld(lipgloss.Color("#E8E8E8"), lipgloss.Color("#292E42")),
+		Bg:       ld(lipgloss.Color("#F0F0F0"), lipgloss.Color("#1A1A2E")),
 		OnAccent: c("#FFFFFF", "231", "15"),
 		Green:    c("#9ECE6A", "114", "2"),
 		Red:      c("#F7768E", "204", "9"),
@@ -147,14 +148,7 @@ func buildTheme(p Palette, m Mode, g Glyphs) Theme {
 var spaceRunRE = regexp.MustCompile(` {2,}`)
 
 func (t Theme) Base() lipgloss.Style {
-	bg := t.P.Bg
-	if bg == nil {
-		bg = t.P.InBg
-	}
-	if bg == nil {
-		bg = t.P.SelBg
-	}
-	return lipgloss.NewStyle().Background(bg).Foreground(t.P.Text)
+	return lipgloss.NewStyle().Background(t.P.Bg).Foreground(t.P.Text)
 }
 
 func (t Theme) Status(w int, left, right string) string {
