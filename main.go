@@ -26,6 +26,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/x/ansi"
 	qrcode "github.com/skip2/go-qrcode"
 )
 
@@ -2039,27 +2040,7 @@ func truncateToWidth(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	if lipgloss.Width(s) <= width {
-		return s
-	}
-	target := width - 1
-	if target < 1 {
-		target = 1
-	}
-	var b strings.Builder
-	cur := 0
-	for _, r := range s {
-		rw := lipgloss.Width(string(r))
-		if rw < 1 {
-			rw = 1
-		}
-		if cur+rw > target {
-			break
-		}
-		b.WriteRune(r)
-		cur += rw
-	}
-	return b.String() + "…"
+	return ansi.Truncate(s, width, "…")
 }
 
 // wrapHanging splits text into lines with a hanging indent: the first line
