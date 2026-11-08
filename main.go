@@ -266,6 +266,15 @@ func newModel() model {
 		isDark:       true,
 		colorProfile: profile,
 	}
+	st := m.input.Styles()
+	st.Focused.Base = m.theme.Base()
+	st.Focused.Text = m.theme.Base().Foreground(m.theme.P.Text)
+	st.Focused.CursorLine = m.theme.Base()
+	st.Focused.Placeholder = m.theme.Base().Foreground(m.theme.P.Muted)
+	st.Focused.Prompt = m.theme.Base().Foreground(m.theme.P.Accent)
+	st.Focused.EndOfBuffer = m.theme.Base()
+	st.Blurred = st.Focused
+	m.input.SetStyles(st)
 	if _, err := exec.LookPath("signal-cli"); err != nil {
 		m.state = stateMissingDep
 		m.port = findAvailablePort(8081)
@@ -1677,13 +1686,13 @@ func (m model) View() tea.View {
 		if lm := leftMargin(m); lm > 0 && content != "Loading..." {
 			lines := strings.Split(content, "\n")
 			for i := range lines {
-				lines[i] = strings.Repeat(" ", lm) + lines[i]
+				lines[i] = m.theme.Base().Render(strings.Repeat(" ", lm)) + lines[i]
 			}
 			content = strings.Join(lines, "\n")
 			v = tea.NewView(content)
 			v.AltScreen = true
 		}
-		content = fit(content, m.width, m.height)
+		content = fit(content, m.width, m.height, m.theme)
 		v = tea.NewView(content)
 		v.AltScreen = true
 	}
@@ -1865,7 +1874,7 @@ func computeLayout(w, h int, inputH ...int) layout {
 }
 
 // fit pads or truncates content to exactly w x h.
-func fit(content string, w, h int) string {
+func fit(content string, w, h int, theme Theme) string {
 	lines := strings.Split(content, "\n")
 	if len(lines) > h {
 		lines = lines[len(lines)-h:]
@@ -1874,6 +1883,9 @@ func fit(content string, w, h int) string {
 		lines = append(lines, "")
 	}
 	for i := range lines {
+		if lipgloss.Width(lines[i]) < w {
+			lines[i] = lines[i] + theme.Base().Render(strings.Repeat(" ", w-lipgloss.Width(lines[i])))
+		}
 		if lipgloss.Width(lines[i]) > w {
 			lines[i] = truncateToWidth(lines[i], w)
 		}
@@ -1935,24 +1947,24 @@ func (m model) viewChat() string {
 		if !isSupportedAttachment(att) {
 			keys = "s: save to ~/Downloads/signal-tui  d/Esc: dismiss"
 		}
-		box := lipgloss.NewStyle().Border(m.theme.Border).BorderForeground(m.theme.P.Accent).Padding(1, 2).Render(title + "\n" + keys)
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+		box := m.theme.Base().Border(m.theme.Border).BorderForeground(m.theme.P.Accent).BorderBackground(m.theme.P.Bg).Padding(1, 2).Render(title + "\n" + keys)
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box, lipgloss.WithWhitespaceStyle(m.theme.Base()))
 	}
 	if m.confirmDelete && m.selected < len(m.contacts) {
 		c := m.contacts[m.selected]
 		title := "Delete Conversation?"
 		body := "Delete conversation with " + c.DisplayName() + "?\n\nCtrl+D  Confirm delete\nEsc     Cancel"
-		box := lipgloss.NewStyle().Border(m.theme.Border).BorderForeground(m.theme.P.Red).Padding(1, 2).Render(title + "\n\n" + body)
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+		box := m.theme.Base().Border(m.theme.Border).BorderForeground(m.theme.P.Red).BorderBackground(m.theme.P.Bg).Padding(1, 2).Render(title + "\n\n" + body)
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box, lipgloss.WithWhitespaceStyle(m.theme.Base()))
 	}
 	if m.showHelp {
 		helpText := "Help\n\nCtrl+A  Attach file\nCtrl+H  Toggle help\nEsc     Close\nCtrl+D  Delete conversation\nCtrl+O  Open last attachment\nCtrl+R  React (+1)\nCtrl+Shift+R  Remove (+1)\nTab     Switch pane\n↑/↓     Navigate contacts\nEnter   Send message\nCtrl+C  Quit\nCtrl+T  Next theme"
-		box := lipgloss.NewStyle().Border(m.theme.Border).BorderForeground(m.theme.P.Accent).Padding(1, 2).Render(helpText)
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
+		box := m.theme.Base().Border(m.theme.Border).BorderForeground(m.theme.P.Accent).BorderBackground(m.theme.P.Bg).Padding(1, 2).Render(helpText)
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box, lipgloss.WithWhitespaceStyle(m.theme.Base()))
 	}
 	if m.width < 36 || m.height < 8 {
 		msg := truncateToWidth("Terminal too small (need at least 36x8)", m.width)
-		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, msg)
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, msg, lipgloss.WithWhitespaceStyle(m.theme.Base()))
 	}
 	l := computeLayout(m.width, m.height)
 	m.input.SetWidth(l.InputWidth)
@@ -1972,7 +1984,7 @@ func (m model) viewChat() string {
 		}
 		line = truncateToWidth(line, sw-4)
 		if i == m.selected {
-			line = m.theme.ChatItemSel.Render(line)
+			line = m.theme.ChatItemSel.Width(sw - 4).Render(line)
 		} else {
 			line = m.theme.ChatItem.Render(line)
 		}
@@ -2003,7 +2015,7 @@ func (m model) viewChat() string {
 	for i := start; i < start+visibleContacts && i < len(contactLines); i++ {
 		sb.WriteString(contactLines[i] + "\n")
 	}
-	sidebar := lipgloss.NewStyle().Width(sw).Height(bodyH).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(sb.String())
+	sidebar := m.theme.Base().Width(sw).Height(bodyH).Border(m.theme.Border).BorderBackground(m.theme.P.Bg).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(sb.String())
 
 	var chatContent strings.Builder
 	bubbleWidth := cw - 4
@@ -2089,7 +2101,7 @@ func (m model) viewChat() string {
 				fpLines[i] = truncateToWidth(fpLines[i], wrapWidth)
 			}
 		}
-		msgsPane = lipgloss.NewStyle().Width(cw).Height(msgsH).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(strings.Join(fpLines, "\n"))
+		msgsPane = m.theme.Base().Width(cw).Height(msgsH).Border(m.theme.Border).BorderBackground(m.theme.P.Bg).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(strings.Join(fpLines, "\n"))
 	} else {
 		// truncate chat content to fit msgsH
 		wrapWidth := cw - 4
@@ -2110,10 +2122,10 @@ func (m model) viewChat() string {
 			lines = append(lines, "")
 		}
 		padded := strings.Join(lines, "\n")
-		msgsPane = lipgloss.NewStyle().Width(cw).Height(msgsH).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(padded)
+		msgsPane = m.theme.Base().Width(cw).Height(msgsH).Border(m.theme.Border).BorderBackground(m.theme.P.Bg).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(padded)
 	}
 
-	composer := lipgloss.NewStyle().Width(cw).Height(composerH).Border(m.theme.Border).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(m.input.View())
+	composer := m.theme.Base().Width(cw).Height(composerH).Border(m.theme.Border).BorderBackground(m.theme.P.Bg).BorderForeground(m.theme.P.Border).Padding(0, 1).Render(m.input.View())
 
 	statusText := m.status
 	if m.typing != "" {

@@ -147,7 +147,14 @@ func buildTheme(p Palette, m Mode, g Glyphs) Theme {
 var spaceRunRE = regexp.MustCompile(` {2,}`)
 
 func (t Theme) Base() lipgloss.Style {
-	return lipgloss.NewStyle().Background(t.P.Bg).Foreground(t.P.Text)
+	bg := t.P.Bg
+	if bg == nil {
+		bg = t.P.InBg
+	}
+	if bg == nil {
+		bg = t.P.SelBg
+	}
+	return lipgloss.NewStyle().Background(bg).Foreground(t.P.Text)
 }
 
 func (t Theme) Status(w int, left, right string) string {
