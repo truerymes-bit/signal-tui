@@ -1,8 +1,10 @@
 package main
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -175,7 +177,9 @@ type Message struct {
 }
 
 const (
-	stateSetup = iota
+	stateMissingDep = iota
+	stateInstalling
+	stateSetup
 	stateQRCode
 	stateWaitingLink
 	stateStartingDaemon
@@ -252,6 +256,11 @@ func newModel() model {
 		isDark:       true,
 		colorProfile: profile,
 	}
+	if _, err := exec.LookPath("signal-cli"); err != nil {
+		m.state = stateMissingDep
+		m.port = findAvailablePort(8081)
+		return m
+	}
 	if cfg != nil && cfg.Account != "" {
 		m.config = cfg
 		m.account = cfg.Account
@@ -280,7 +289,11 @@ func findAvailablePort(start int) int {
 
 func readAccountUUIDs() []string {
 	var uuids []string
-	paths := []string{os.ExpandEnv("$HOME/.local/share/signal-cli/data/accounts.json")}
+	paths := []string{
+		os.ExpandEnv("$HOME/.local/share/signal-cli/data/accounts.json"),
+		os.ExpandEnv("$HOME/.config/signal-cli/data/accounts.json"),
+		"/root/.local/share/signal-cli/data/accounts.json",
+	}
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
 		if err != nil {
@@ -301,37 +314,36 @@ func readAccountUUIDs() []string {
 	return uuids
 }
 
-func runLink() tea.Cmd {
-	return func() tea.Msg {
-		linkProcess := exec.Command("signal-cli", "link", "-n", "TUI")
-		stdout, err := linkProcess.StdoutPipe()
-		if err != nil {
-			return linkCompleteMsg{err: fmt.Errorf("failed to start link: %v", err)}
-		}
-		if err := linkProcess.Start(); err != nil {
-			return linkCompleteMsg{err: fmt.Errorf("failed to start link: %v", err)}
-		}
-		scanner := bufio.NewScanner(stdout)
-		scanner.Scan()
-		url := strings.TrimSpace(scanner.Text())
-		if url == "" {
-			linkProcess.Process.Kill()
-			return linkCompleteMsg{err: fmt.Errorf("failed to get link URL")}
-		}
-		qr, err := qrcode.New(url, qrcode.Medium)
-		if err != nil {
-			return linkCompleteMsg{err: fmt.Errorf("qr generation failed: %v", err)}
-		}
-		return qrCodeMsg{url: url, qr: qr.ToString(false)}
-	}
-}
-
-var linkProcess *exec.Cmd
-
 func waitForLink(before []string) tea.Cmd {
 	return func() tea.Msg {
-		// simplified: wait then return; real impl polls
-		time.Sleep(30 * time.Second)
+		// Wait for the link process to exit (it exits after provisioning).
+		done := make(chan error, 1)
+		go func() {
+			if linkProcess != nil {
+				done <- linkProcess.Wait()
+			} else {
+				done <- fmt.Errorf("no link process")
+			}
+		}()
+		select {
+		case err := <-done:
+			if err != nil {
+				msg := err.Error()
+				if linkStderr != "" {
+					msg = msg + ": " + strings.TrimSpace(linkStderr)
+				}
+				linkProcess = nil
+				return linkCompleteMsg{err: fmt.Errorf("link failed: %s", msg)}
+			}
+		case <-time.After(120 * time.Second):
+			if linkProcess != nil {
+				linkProcess.Process.Kill()
+			}
+			linkProcess = nil
+			return linkCompleteMsg{err: fmt.Errorf("link timed out")}
+		}
+		linkProcess = nil
+		// Now check accounts.json for a new UUID.
 		after := readAccountUUIDs()
 		for _, u := range after {
 			found := false
@@ -351,10 +363,164 @@ func waitForLink(before []string) tea.Cmd {
 		return linkCompleteMsg{err: fmt.Errorf("no account found after link")}
 	}
 }
+func installSignalCLI() tea.Cmd {
+	return func() tea.Msg {
+		// Download latest signal-cli release tarball and extract to ~/.local/bin
+		installDir := os.ExpandEnv("$HOME/.local/bin")
+		if err := os.MkdirAll(installDir, 0700); err != nil {
+			return signalCLIInstalledMsg{err: fmt.Errorf("mkdir: %v", err)}
+		}
+		// Get latest release info
+		client := &http.Client{Timeout: 30 * time.Second}
+		resp, err := client.Get("https://api.github.com/repos/AsamK/signal-cli/releases/latest")
+		if err != nil {
+			return signalCLIInstalledMsg{err: fmt.Errorf("fetch release info: %v", err)}
+		}
+		defer resp.Body.Close()
+		var release struct {
+			TagName string `json:"tag_name"`
+			Assets  []struct {
+				Name               string `json:"name"`
+				BrowserDownloadURL string `json:"browser_download_url"`
+			} `json:"assets"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+			return signalCLIInstalledMsg{err: fmt.Errorf("parse release: %v", err)}
+		}
+		var url string
+		expected := "signal-cli-" + strings.TrimPrefix(release.TagName, "v") + ".tar.gz"
+		for _, a := range release.Assets {
+			if a.Name == expected {
+				url = a.BrowserDownloadURL
+				break
+			}
+		}
+		if url == "" {
+			// fallback: first tarball that isn't json-schemas or native/client
+			for _, a := range release.Assets {
+				if strings.HasSuffix(a.Name, ".tar.gz") && !strings.Contains(a.Name, "json-schemas") && !strings.Contains(a.Name, "-Linux-") {
+					url = a.BrowserDownloadURL
+					break
+				}
+			}
+		}
+		if url == "" {
+			return signalCLIInstalledMsg{err: fmt.Errorf("no tarball in release %s", release.TagName)}
+		}
+		// Download tarball
+		dlClient := &http.Client{Timeout: 300 * time.Second}
+		resp2, err := dlClient.Get(url)
+		if err != nil {
+			return signalCLIInstalledMsg{err: fmt.Errorf("download: %v", err)}
+		}
+		defer resp2.Body.Close()
+		tmp, err := os.CreateTemp("", "signal-cli-*.tar.gz")
+		if err != nil {
+			return signalCLIInstalledMsg{err: fmt.Errorf("temp: %v", err)}
+		}
+		tmpName := tmp.Name()
+		defer os.Remove(tmpName)
+		if _, err := io.Copy(tmp, resp2.Body); err != nil {
+			tmp.Close()
+			return signalCLIInstalledMsg{err: fmt.Errorf("write: %v", err)}
+		}
+		tmp.Close()
+		// Extract
+		f, err := os.Open(tmpName)
+		if err != nil {
+			return signalCLIInstalledMsg{err: fmt.Errorf("open: %v", err)}
+		}
+		defer f.Close()
+		gz, err := gzip.NewReader(f)
+		if err != nil {
+			return signalCLIInstalledMsg{err: fmt.Errorf("gzip: %v", err)}
+		}
+		defer gz.Close()
+		tr := tar.NewReader(gz)
+		for {
+			hdr, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return signalCLIInstalledMsg{err: fmt.Errorf("tar: %v", err)}
+			}
+			if hdr.Typeflag != tar.TypeReg {
+				continue
+			}
+			base := filepath.Base(hdr.Name)
+			if base != "signal-cli" {
+				continue
+			}
+			outPath := filepath.Join(installDir, "signal-cli")
+			out, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+			if err != nil {
+				return signalCLIInstalledMsg{err: fmt.Errorf("create binary: %v", err)}
+			}
+			if _, err := io.Copy(out, tr); err != nil {
+				out.Close()
+				return signalCLIInstalledMsg{err: fmt.Errorf("extract: %v", err)}
+			}
+			out.Close()
+		}
+		// Ensure PATH includes installDir for this process
+		if !strings.Contains(os.Getenv("PATH"), installDir) {
+			os.Setenv("PATH", installDir+":"+os.Getenv("PATH"))
+		}
+		return signalCLIInstalledMsg{err: nil}
+	}
+}
+func runLink() tea.Cmd {
+	return func() tea.Msg {
+		linkProcess = exec.Command("signal-cli", "link", "-n", "TUI")
+		stdout, err := linkProcess.StdoutPipe()
+		if err != nil {
+			return linkCompleteMsg{err: fmt.Errorf("failed to start link: %v", err)}
+		}
+		stderr, err := linkProcess.StderrPipe()
+		if err != nil {
+			return linkCompleteMsg{err: fmt.Errorf("failed to start link: %v", err)}
+		}
+		linkStderr = ""
+		if err := linkProcess.Start(); err != nil {
+			return linkCompleteMsg{err: fmt.Errorf("failed to start link: %v", err)}
+		}
+		scanner := bufio.NewScanner(stdout)
+		scanner.Scan()
+		url := strings.TrimSpace(scanner.Text())
+		if url == "" {
+			b, _ := io.ReadAll(stderr)
+			linkStderr = string(b)
+			linkProcess.Process.Kill()
+			linkProcess = nil
+			return linkCompleteMsg{err: fmt.Errorf("failed to get link URL: %s", strings.TrimSpace(linkStderr))}
+		}
+		go func() {
+			for scanner.Scan() {
+			}
+		}()
+		go func() {
+			b, _ := io.ReadAll(stderr)
+			linkStderr = string(b)
+		}()
+		qr, err := qrcode.New(url, qrcode.Medium)
+		if err != nil {
+			return linkCompleteMsg{err: fmt.Errorf("qr generation failed: %v", err)}
+		}
+		return qrCodeMsg{url: url, qr: qr.ToSmallString(false)}
+	}
+}
+
+var linkProcess *exec.Cmd
+var linkStderr string
 
 type linkCompleteMsg struct {
 	account string
 	err     error
+}
+
+type signalCLIInstalledMsg struct {
+	err error
 }
 
 type daemonReadyMsg struct {
@@ -374,8 +540,9 @@ type pollAccountMsg struct {
 func startDaemon(account string, port int) tea.Cmd {
 	return func() tea.Msg {
 		cmd := exec.Command("signal-cli", "-a", account, "daemon", "--http", fmt.Sprintf("127.0.0.1:%d", port), "--receive-mode", "on-connection")
+		var stderr bytes.Buffer
 		cmd.Stdout = nil
-		cmd.Stderr = nil
+		cmd.Stderr = &stderr
 		if err := cmd.Start(); err != nil {
 			return daemonReadyMsg{port: port, err: fmt.Errorf("failed to start daemon: %v", err)}
 		}
@@ -388,7 +555,15 @@ func startDaemon(account string, port int) tea.Cmd {
 				return daemonReadyMsg{port: port}
 			}
 		}
-		return daemonReadyMsg{port: port, err: fmt.Errorf("daemon did not start in time")}
+		// Kill the failed daemon.
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+		errMsg := strings.TrimSpace(stderr.String())
+		if errMsg == "" {
+			errMsg = "daemon did not start in time"
+		}
+		return daemonReadyMsg{port: port, err: fmt.Errorf("daemon did not start in time: %s", errMsg)}
 	}
 }
 
@@ -1101,6 +1276,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateWaitingLink
 		return m, waitForLink(m.beforeAccounts)
 
+	case signalCLIInstalledMsg:
+		if msg.err != nil {
+			m.setupErr = "Install failed: " + msg.err.Error()
+			m.state = stateMissingDep
+			return m, nil
+		}
+		if _, err := exec.LookPath("signal-cli"); err != nil {
+			m.setupErr = "signal-cli still not found after install"
+			m.state = stateMissingDep
+			return m, nil
+		}
+		m.setupErr = ""
+		if m.config != nil && m.config.Account != "" {
+			m.state = stateStartingDaemon
+			m.setupMsg = "Starting daemon..."
+			return m, startDaemon(m.account, m.port)
+		}
+		m.state = stateSetup
+		m.port = findAvailablePort(8081)
+		return m, nil
+
 	case linkCompleteMsg:
 		if msg.err != nil {
 			m.setupErr = msg.err.Error()
@@ -1155,6 +1351,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			return m, cmd
+		}
+
+		if m.state == stateInstalling {
+			if msg.String() == "ctrl+c" {
+				return m, tea.Quit
+			}
+			return m, nil
+		}
+
+		if m.state == stateMissingDep {
+			if msg.String() == "y" {
+				m.state = stateInstalling
+				m.setupMsg = "Downloading signal-cli..."
+				return m, installSignalCLI()
+			}
+			if msg.String() == "n" || msg.String() == "q" || msg.String() == "ctrl+c" {
+				return m, tea.Quit
+			}
+			return m, nil
 		}
 
 		if m.state == stateSetup {
@@ -1429,6 +1644,10 @@ func (m model) View() tea.View {
 		content = "Loading..."
 	} else {
 		switch m.state {
+		case stateMissingDep:
+			content = m.viewMissingDep()
+		case stateInstalling:
+			content = m.viewInstalling()
 		case stateSetup:
 			content = m.viewSetup()
 		case stateQRCode, stateWaitingLink:
@@ -1472,6 +1691,34 @@ func (m model) viewSetup() string {
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("  Error: "+m.setupErr) + "\n\n")
 	}
 	b.WriteString(lipgloss.NewStyle().Faint(true).Render("  [l] Link device  [q] Quit") + "\n")
+	return b.String()
+}
+
+func (m model) viewInstalling() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(lipgloss.NewStyle().Bold(true).Render("  Signal TUI — First Run Setup") + "\n\n")
+	b.WriteString("  " + m.setupMsg + "\n\n")
+	if m.setupErr != "" {
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("  Error: "+m.setupErr) + "\n\n")
+	}
+	b.WriteString(lipgloss.NewStyle().Faint(true).Render("  Please wait... (Ctrl+C to cancel)") + "\n")
+	return b.String()
+}
+
+func (m model) viewMissingDep() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(lipgloss.NewStyle().Bold(true).Render("  Signal TUI — First Run Setup") + "\n\n")
+	b.WriteString("  signal-cli was not found on your PATH.\n\n")
+	if m.setupMsg != "" {
+		b.WriteString("  " + m.setupMsg + "\n\n")
+	}
+	if m.setupErr != "" {
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("9")).Render("  Error: "+m.setupErr) + "\n\n")
+	}
+	b.WriteString("  Download and install signal-cli to ~/.local/bin? [y/n]\n")
+	b.WriteString(lipgloss.NewStyle().Faint(true).Render("  [y] Yes  [n/q] Quit") + "\n")
 	return b.String()
 }
 
@@ -1830,6 +2077,21 @@ func main() {
 	os.MkdirAll(cacheDir(), 0700)
 	os.MkdirAll(attachmentCacheDir(), 0700)
 
+	// Resolve signal-cli: prefer a working binary over a broken one on PATH.
+	// Prefer the newest working signal-cli. /usr/local/bin has 0.14.9 (supports v11 config),
+	// /opt/signal-cli has 0.14.5 (v10 only). ~/.local/bin may be a broken GraalVM image.
+	candidates := []string{
+		"/usr/local/bin/signal-cli",
+		"/opt/signal-cli/bin/signal-cli",
+		"/usr/bin/signal-cli",
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			dir := filepath.Dir(c)
+			os.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+			break
+		}
+	}
 	m := newModel()
 	p := tea.NewProgram(m)
 	if _, err := p.Run(); err != nil {
