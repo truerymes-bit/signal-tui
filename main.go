@@ -1713,12 +1713,8 @@ func (m model) View() tea.View {
 		v = tea.NewView(content)
 		v.AltScreen = true
 	}
-	bg := m.theme.P.Bg
-	if bg == nil {
-		bg = m.theme.P.InBg
-	}
-	if bg != nil {
-		v.BackgroundColor = bg
+	if m.theme.P.Bg != nil {
+		v.BackgroundColor = m.theme.P.Bg
 	}
 	return v
 }
