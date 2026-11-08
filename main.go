@@ -1677,6 +1677,9 @@ func (m model) View() tea.View {
 			debugLog("layout overflow: got %dx%d, have %dx%d", w, h, m.width, m.height)
 		}
 	}
+	if m.theme.P.Bg != nil {
+		v.BackgroundColor = m.theme.P.Bg
+	}
 	return v
 }
 
@@ -1775,8 +1778,8 @@ func (m model) sizes() (sw, cw, bodyH int) {
 		}
 	} else {
 		sw = w / 4
-		if sw < 12 {
-			sw = 12
+		if sw < 24 {
+			sw = 24
 		}
 		if sw > 36 {
 			sw = 36
@@ -1917,14 +1920,14 @@ func (m model) viewChat() string {
 				}
 			}
 			if len(parts) > 0 {
-				chatContent.WriteString("  " + strings.Join(parts, "  ") + "\n")
+				chatContent.WriteString("  " + lipgloss.NewStyle().Foreground(m.theme.P.Tick).Render(strings.Join(parts, "  ")) + "\n")
 			}
 		}
 		if msg.IsMe {
 			if msg.Receipt >= 1 {
-				chatContent.WriteString("  " + m.theme.G.Read + "\n")
+				chatContent.WriteString("  " + lipgloss.NewStyle().Foreground(m.theme.P.Tick).Render(m.theme.G.Read) + "\n")
 			} else if msg.Sent {
-				chatContent.WriteString("  " + m.theme.G.Sent + "\n")
+				chatContent.WriteString("  " + lipgloss.NewStyle().Foreground(m.theme.P.Tick).Render(m.theme.G.Sent) + "\n")
 			}
 		}
 		chatContent.WriteString("\n")

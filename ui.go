@@ -31,9 +31,9 @@ func ModeFor(p colorprofile.Profile) Mode {
 }
 
 type Palette struct {
-	Accent, AccentBg, Text, Muted, Border, SelBg, InBg color.Color
-	OnAccent, Green, Red, Yellow                       color.Color
-	Sender                                             []color.Color
+	Bg, Accent, AccentBg, Text, Muted, Border, SelBg, InBg color.Color
+	OnAccent, Tick, Green, Red, Yellow                     color.Color
+	Sender                                                 []color.Color
 }
 
 func NewPalette(p colorprofile.Profile, isDark bool) Palette {
@@ -111,6 +111,10 @@ func buildTheme(p Palette, m Mode, g Glyphs) Theme {
 	} else {
 		t.Border = lipgloss.NormalBorder()
 	}
+	if p.Tick == nil {
+		p.Tick = p.Muted
+	}
+	t.P = p
 	base := lipgloss.NewStyle().Border(t.Border)
 	t.PaneBlurred = base.BorderForeground(p.Border)
 	t.PaneFocused = base.BorderForeground(p.Accent)
@@ -133,7 +137,7 @@ func buildTheme(p Palette, m Mode, g Glyphs) Theme {
 	} else {
 		t.ChatItem = lipgloss.NewStyle().Foreground(p.Text).PaddingLeft(1)
 		t.ChatItemSel = lipgloss.NewStyle().Reverse(true).Bold(true).PaddingLeft(1)
-		t.MsgIn = lipgloss.NewStyle().Foreground(p.Text).PaddingLeft(1)
+		t.MsgIn = lipgloss.NewStyle().Foreground(p.Text).Background(p.InBg).PaddingLeft(1)
 		t.MsgOut = lipgloss.NewStyle().Foreground(p.Accent).PaddingRight(1)
 		t.StatusBar = lipgloss.NewStyle().Reverse(true).Padding(0, 1)
 	}
@@ -141,6 +145,10 @@ func buildTheme(p Palette, m Mode, g Glyphs) Theme {
 }
 
 var spaceRunRE = regexp.MustCompile(` {2,}`)
+
+func (t Theme) Base() lipgloss.Style {
+	return lipgloss.NewStyle().Background(t.P.Bg).Foreground(t.P.Text)
+}
 
 func (t Theme) Status(w int, left, right string) string {
 	gap := w - 2 - lipgloss.Width(left) - lipgloss.Width(right)
@@ -305,14 +313,16 @@ var NamedThemes = map[string]ThemeConfig{
 	"solarized-light": {
 		Name: "Solarized Light",
 		Palette: Palette{
+			Bg:       lipgloss.Color("#FDF6E3"),
 			Accent:   lipgloss.Color("#268BD2"),
-			AccentBg: lipgloss.Color("#EEE8D5"),
+			AccentBg: lipgloss.Color("#D4E3EE"),
 			Text:     lipgloss.Color("#073642"),
 			Muted:    lipgloss.Color("#586E75"),
 			Border:   lipgloss.Color("#93A1A1"),
-			SelBg:    lipgloss.Color("#FDF6E3"),
-			InBg:     lipgloss.Color("#FDF6E3"),
+			SelBg:    lipgloss.Color("#D4E3EE"),
+			InBg:     lipgloss.Color("#EEE8D5"),
 			OnAccent: lipgloss.Color("#073642"),
+			Tick:     lipgloss.Color("#586E75"),
 			Green:    lipgloss.Color("#9ECE6A"),
 			Red:      lipgloss.Color("#F7768E"),
 			Yellow:   lipgloss.Color("#E0AF68"),
