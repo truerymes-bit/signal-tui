@@ -74,7 +74,7 @@ func TestReceivedFirstLinePadding(t *testing.T) {
 		if prefixIdx != leftEdge+1 {
 			t.Fatalf("theme %q: row %d prefix col %d != leftEdge+1 %d", name, start, prefixIdx, leftEdge+1)
 		}
-		if leftEdge-1 >= 0 && cells[[2]int{start, leftEdge-1}] == inBgToken(th) {
+		if leftEdge-1 >= 0 && cells[[2]int{start, leftEdge - 1}] == inBgToken(th) {
 			t.Fatalf("theme %q: row %d has more than one leading padding space", name, start)
 		}
 
