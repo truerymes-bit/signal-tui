@@ -99,9 +99,9 @@ func NewTheme(profile colorprofile.Profile, isDark bool) Theme {
 
 func defaultGlyphs(m Mode) Glyphs {
 	if m == ModeRich {
-		return Glyphs{"●", "●", "*", "✓✓", "*", "┃", "❯", "·"}
+		return Glyphs{"●", "●", "✓", "✓✓", "✓✓", "┃", "❯", "·"}
 	}
-	return Glyphs{"*", "o", "*", "vv", "*", "|", ">", "-"}
+	return Glyphs{"*", "o", "v", "vv", "vv", "|", ">", "-"}
 }
 
 // buildTheme constructs the complete Theme for a resolved palette and mode.
@@ -249,7 +249,7 @@ var NamedThemes = map[string]ThemeConfig{
 				lipgloss.Color("#d4955a"), lipgloss.Color("#93c283"),
 			},
 		},
-		Glyphs: Glyphs{"●", "o", "*", "▸", "*", "┃", "❯", "·"},
+		Glyphs: Glyphs{"●", "o", "✓", "✓✓", "✓✓", "┃", "❯", "·"},
 		IsDark: true,
 	},
 	"nord": {
@@ -274,7 +274,7 @@ var NamedThemes = map[string]ThemeConfig{
 				lipgloss.Color("#EBCB8B"), lipgloss.Color("#D08770"),
 			},
 		},
-		Glyphs: Glyphs{"●", "o", "*", "=", "*", "┃", "›", "·"},
+		Glyphs: Glyphs{"●", "o", "✓", "✓✓", "✓✓", "┃", "›", "·"},
 		IsDark: true,
 	},
 	"gruvbox-amber": {
@@ -299,7 +299,7 @@ var NamedThemes = map[string]ThemeConfig{
 				lipgloss.Color("#D3869B"), lipgloss.Color("#8EC07C"),
 			},
 		},
-		Glyphs: Glyphs{"●", "o", "*", "vv", "*", "┃", ">", "·"},
+		Glyphs: Glyphs{"●", "o", "✓", "✓✓", "✓✓", "┃", ">", "·"},
 		IsDark: true,
 	},
 	"monokai-pro": {
@@ -324,7 +324,7 @@ var NamedThemes = map[string]ThemeConfig{
 				lipgloss.Color("#78DCE8"), lipgloss.Color("#AB9DF2"),
 			},
 		},
-		Glyphs: Glyphs{"●", "o", "*", "✓✓", "*", "┃", "λ", "·"},
+		Glyphs: Glyphs{"●", "o", "✓", "✓✓", "✓✓", "┃", "λ", "·"},
 		IsDark: true,
 	},
 	"solarized-light": {
@@ -349,7 +349,7 @@ var NamedThemes = map[string]ThemeConfig{
 				lipgloss.Color("#6C71C4"), lipgloss.Color("#2AA198"),
 			},
 		},
-		Glyphs: Glyphs{"●", "o", "*", "++", "*", "┃", "»", "·"},
+		Glyphs: Glyphs{"●", "o", "✓", "✓✓", "✓✓", "┃", "»", "·"},
 		IsDark: false,
 	},
 	"dusk-slate": {
@@ -374,7 +374,7 @@ var NamedThemes = map[string]ThemeConfig{
 				lipgloss.Color("#e3e8f3"), lipgloss.Color("#6b7490"),
 			},
 		},
-		Glyphs: Glyphs{"●", "o", "*", "✓✓", "*", "┃", "❯", "·"},
+		Glyphs: Glyphs{"●", "o", "✓", "✓✓", "✓✓", "┃", "❯", "·"},
 		IsDark: true,
 	},
 	"moss": {
@@ -399,7 +399,7 @@ var NamedThemes = map[string]ThemeConfig{
 				lipgloss.Color("#e2ece5"), lipgloss.Color("#68776d"),
 			},
 		},
-		Glyphs: Glyphs{"●", "o", "*", "✓✓", "*", "┃", "❯", "·"},
+		Glyphs: Glyphs{"●", "o", "✓", "✓✓", "✓✓", "┃", "❯", "·"},
 		IsDark: true,
 	},
 	"warm-sepia": {
@@ -424,7 +424,7 @@ var NamedThemes = map[string]ThemeConfig{
 				lipgloss.Color("#f0e6da"), lipgloss.Color("#8a7d70"),
 			},
 		},
-		Glyphs: Glyphs{"●", "o", "*", "✓✓", "*", "┃", "❯", "·"},
+		Glyphs: Glyphs{"●", "o", "✓", "✓✓", "✓✓", "┃", "❯", "·"},
 		IsDark: true,
 	},
 	"lavender-ink": {
@@ -449,7 +449,7 @@ var NamedThemes = map[string]ThemeConfig{
 				lipgloss.Color("#ebe7f5"), lipgloss.Color("#767391"),
 			},
 		},
-		Glyphs: Glyphs{"●", "o", "*", "✓✓", "*", "┃", "❯", "·"},
+		Glyphs: Glyphs{"●", "o", "✓", "✓✓", "✓✓", "┃", "❯", "·"},
 		IsDark: true,
 	},
 	"teal-fog": {
@@ -474,7 +474,7 @@ var NamedThemes = map[string]ThemeConfig{
 				lipgloss.Color("#e0eeee"), lipgloss.Color("#647a7e"),
 			},
 		},
-		Glyphs: Glyphs{"●", "o", "*", "✓✓", "*", "┃", "❯", "·"},
+		Glyphs: Glyphs{"●", "o", "✓", "✓✓", "✓✓", "┃", "❯", "·"},
 		IsDark: true,
 	},
 	"dracula": {
@@ -499,7 +499,7 @@ var NamedThemes = map[string]ThemeConfig{
 				lipgloss.Color("#FFB86C"), lipgloss.Color("#BD93F9"),
 			},
 		},
-		Glyphs: Glyphs{"●", "o", "*", "✓✓", "*", "┃", "⚡", "·"},
+		Glyphs: Glyphs{"●", "o", "✓", "✓✓", "✓✓", "┃", "⚡", "·"},
 		IsDark: true,
 	},
 }

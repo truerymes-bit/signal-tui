@@ -2109,10 +2109,12 @@ func (m model) viewChat() string {
 			}
 		}
 		if msg.IsMe {
-			if msg.Receipt >= 1 {
-				chatContent.WriteString(m.theme.Base().Foreground(m.theme.P.Tick).Render("  "+m.theme.G.Read) + "\n")
-			} else if msg.Sent {
+			if msg.Receipt == 0 && msg.Sent {
 				chatContent.WriteString(m.theme.Base().Foreground(m.theme.P.Tick).Render("  "+m.theme.G.Sent) + "\n")
+			} else if msg.Receipt == 1 {
+				chatContent.WriteString(m.theme.Base().Foreground(m.theme.P.Tick).Render("  "+m.theme.G.Delivered) + "\n")
+			} else if msg.Receipt == 2 {
+				chatContent.WriteString(m.theme.Base().Foreground(m.theme.P.Accent).Render("  "+m.theme.G.Read) + "\n")
 			}
 		}
 		chatContent.WriteString("\n")
