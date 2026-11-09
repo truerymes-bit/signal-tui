@@ -2076,12 +2076,19 @@ func (m model) viewChat() string {
 		}
 		for i, l := range msgLines {
 			if i == 0 && !msg.IsMe && len(m.theme.P.Sender) > 0 {
+				l = truncateToWidth(l, renderWidth)
 				rest := strings.TrimPrefix(l, prefix)
 				c := m.theme.P.Sender[nameHash(name)%len(m.theme.P.Sender)]
-				plain := style.UnsetWidth().UnsetPadding()
-				l = plain.Foreground(c).Bold(true).Render(prefix) + plain.Render(rest)
+				base := style.UnsetWidth().UnsetPadding()
+				line := base.Foreground(c).Bold(true).Render(prefix) + base.Render(rest)
+				pad := renderWidth - ansi.StringWidth(line)
+				if pad > 0 {
+					line += base.Render(strings.Repeat(" ", pad))
+				}
+				chatContent.WriteString(line + "\n")
+			} else {
+				chatContent.WriteString(style.Width(renderWidth).Render(truncateToWidth(l, renderWidth)) + "\n")
 			}
-			chatContent.WriteString(style.Width(renderWidth).Render(l) + "\n")
 		}
 		for _, p := range msg.LocalPaths {
 			chatContent.WriteString(m.theme.Base().Render("  [Attachment: "+filepath.Base(p)+"]") + "\n")
