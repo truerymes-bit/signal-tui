@@ -43,6 +43,7 @@ type Attachment struct {
 type Config struct {
 	Account string `json:"account"`
 	Port    int    `json:"port"`
+	Theme   string `json:"theme,omitempty"`
 }
 
 func configDir() string {
@@ -269,13 +270,21 @@ func newModel() model {
 
 	cfg, _ := loadConfig()
 	profile := colorprofile.Detect(os.Stdout, os.Environ())
+	themeName := ""
+	var theme Theme
+	if cfg != nil && cfg.Theme != "" {
+		themeName = cfg.Theme
+		theme = ThemeForName(cfg.Theme)
+	} else {
+		theme = NewTheme(profile, true)
+	}
 	m := model{
 		input:        ti,
 		fp:           fp,
 		status:       "Starting...",
 		history:      make(map[string][]Message),
-		theme:        NewTheme(profile, true),
-		themeName:    "",
+		theme:        theme,
+		themeName:    themeName,
 		isDark:       true,
 		colorProfile: profile,
 	}
@@ -1097,6 +1106,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.config.Account = m.account
 		m.config.Port = m.port
+		m.config.Theme = m.themeName
 		saveConfig(m.config)
 		m.rpcURL = fmt.Sprintf("http://127.0.0.1:%d/api/v1/rpc", m.port)
 		m.eventsURL = fmt.Sprintf("http://127.0.0.1:%d/api/v1/events?account=%s", m.port, m.account)
@@ -1463,6 +1473,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.status = ""
 			}
+			// persist selected theme
+			if m.config == nil {
+				if c, _ := loadConfig(); c != nil {
+					m.config = c
+				} else {
+					m.config = &Config{}
+				}
+			}
+			m.config.Theme = m.themeName
+			saveConfig(m.config)
 			return m, nil
 		case "ctrl+h":
 			m.showHelp = !m.showHelp
