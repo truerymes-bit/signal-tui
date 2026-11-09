@@ -233,6 +233,7 @@ type model struct {
 }
 
 var daemonCmd *exec.Cmd
+var eventDeliver func(tea.Msg)
 
 func applyTextareaStyles(m *model) {
 	st := m.input.Styles()
@@ -716,89 +717,106 @@ type attachmentReadyMsg struct {
 
 func listenEvents(port int, account string) tea.Cmd {
 	return func() tea.Msg {
-		url := fmt.Sprintf("http://127.0.0.1:%d/api/v1/events?account=%s", port, account)
-		resp, err := http.Get(url)
-		if err != nil {
-			time.Sleep(time.Second)
-			return listenEvents(port, account)()
-		}
-		defer resp.Body.Close()
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if !strings.HasPrefix(line, "data:") {
+		for {
+			url := fmt.Sprintf("http://127.0.0.1:%d/api/v1/events?account=%s", port, account)
+			resp, err := http.Get(url)
+			if err != nil {
+				debugLog("listenEvents connect error: %v", err)
+				time.Sleep(time.Second)
 				continue
 			}
-			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			var ev struct {
-				Envelope struct {
-					Source      string `json:"source"`
-					SourceName  string `json:"sourceName"`
-					Timestamp   int64  `json:"timestamp"`
-					DataMessage *struct {
-						Message     string       `json:"message"`
-						Attachments []Attachment `json:"attachments"`
-						Reaction    *struct {
-							Emoji               string `json:"emoji"`
-							TargetAuthor        string `json:"targetAuthor"`
-							TargetSentTimestamp int64  `json:"targetSentTimestamp"`
-							IsRemove            bool   `json:"isRemove"`
-						} `json:"reaction"`
-					} `json:"dataMessage"`
-					TypingMessage *struct {
-						Action string `json:"action"`
-					} `json:"typingMessage"`
-					ReceiptMessage *struct {
-						When       int64   `json:"when"`
-						IsDelivery bool    `json:"isDelivery"`
-						IsRead     bool    `json:"isRead"`
-						IsViewed   bool    `json:"isViewed"`
-						Timestamps []int64 `json:"timestamps"`
-					} `json:"receiptMessage"`
-				} `json:"envelope"`
-			}
-			if err := json.Unmarshal([]byte(data), &ev); err != nil {
-				continue
-			}
-			env := ev.Envelope
-			if env.DataMessage != nil {
-				if env.DataMessage.Reaction != nil {
-					r := env.DataMessage.Reaction
+			scanner := bufio.NewScanner(resp.Body)
+			scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+			for scanner.Scan() {
+				line := scanner.Text()
+				if !strings.HasPrefix(line, "data:") {
+					continue
+				}
+				data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+				var ev struct {
+					Envelope struct {
+						Source      string `json:"source"`
+						SourceName  string `json:"sourceName"`
+						Timestamp   int64  `json:"timestamp"`
+						DataMessage *struct {
+							Message     string       `json:"message"`
+							Attachments []Attachment `json:"attachments"`
+							Reaction    *struct {
+								Emoji               string `json:"emoji"`
+								TargetAuthor        string `json:"targetAuthor"`
+								TargetSentTimestamp int64  `json:"targetSentTimestamp"`
+								IsRemove            bool   `json:"isRemove"`
+							} `json:"reaction"`
+						} `json:"dataMessage"`
+						TypingMessage *struct {
+							Action string `json:"action"`
+						} `json:"typingMessage"`
+						ReceiptMessage *struct {
+							When       int64   `json:"when"`
+							IsDelivery bool    `json:"isDelivery"`
+							IsRead     bool    `json:"isRead"`
+							IsViewed   bool    `json:"isViewed"`
+							Timestamps []int64 `json:"timestamps"`
+						} `json:"receiptMessage"`
+					} `json:"envelope"`
+				}
+				if err := json.Unmarshal([]byte(data), &ev); err != nil {
+					continue
+				}
+				env := ev.Envelope
+				if env.DataMessage != nil {
+					if env.DataMessage.Reaction != nil {
+						r := env.DataMessage.Reaction
+						from := env.SourceName
+						if from == "" {
+							from = env.Source
+						}
+						if eventDeliver != nil {
+							eventDeliver(reactionMsg{source: from, emoji: r.Emoji, targetTimestamp: r.TargetSentTimestamp, isRemove: r.IsRemove})
+						}
+						continue
+					}
+					msg := Message{
+						From:        env.SourceName,
+						Text:        env.DataMessage.Message,
+						Time:        time.UnixMilli(env.Timestamp),
+						IsMe:        false,
+						Contact:     env.Source,
+						Attachments: env.DataMessage.Attachments,
+					}
+					if msg.From == "" {
+						msg.From = env.Source
+					}
+					if eventDeliver != nil {
+						eventDeliver(messageReceivedMsg{msg: msg})
+					}
+					continue
+				}
+				if env.TypingMessage != nil {
 					from := env.SourceName
 					if from == "" {
 						from = env.Source
 					}
-					return reactionMsg{source: from, emoji: r.Emoji, targetTimestamp: r.TargetSentTimestamp, isRemove: r.IsRemove}
+					if eventDeliver != nil {
+						eventDeliver(typingMsg{from: from, action: env.TypingMessage.Action})
+					}
+					continue
 				}
-				msg := Message{
-					From:        env.SourceName,
-					Text:        env.DataMessage.Message,
-					Time:        time.UnixMilli(env.Timestamp),
-					IsMe:        false,
-					Contact:     env.Source,
-					Attachments: env.DataMessage.Attachments,
+				if env.ReceiptMessage != nil {
+					if eventDeliver != nil {
+						eventDeliver(receiptMsg{source: env.Source, isDelivery: env.ReceiptMessage.IsDelivery, isRead: env.ReceiptMessage.IsRead, isViewed: env.ReceiptMessage.IsViewed, timestamps: env.ReceiptMessage.Timestamps})
+					}
+					continue
 				}
-				if msg.From == "" {
-					msg.From = env.Source
-				}
-				return messageReceivedMsg{msg: msg}
 			}
-			if env.TypingMessage != nil {
-				from := env.SourceName
-				if from == "" {
-					from = env.Source
-				}
-				return typingMsg{from: from, action: env.TypingMessage.Action}
+			resp.Body.Close()
+			if err := scanner.Err(); err != nil {
+				debugLog("listenEvents read error: %v", err)
+			} else {
+				debugLog("listenEvents stream closed")
 			}
-			if env.ReceiptMessage != nil {
-				return receiptMsg{source: env.Source, isDelivery: env.ReceiptMessage.IsDelivery, isRead: env.ReceiptMessage.IsRead, isViewed: env.ReceiptMessage.IsViewed, timestamps: env.ReceiptMessage.Timestamps}
-			}
-		}
-		if err := scanner.Err(); err != nil {
 			time.Sleep(time.Second)
 		}
-		return listenEvents(port, account)()
 	}
 }
 
@@ -968,6 +986,7 @@ func (m model) Init() tea.Cmd {
 	if m.state == stateStartingDaemon {
 		cmds = append(cmds, startDaemon(m.account, m.port))
 	}
+	cmds = append(cmds, listenEvents(m.port, m.account))
 	return tea.Batch(cmds...)
 }
 
@@ -1112,7 +1131,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.eventsURL = fmt.Sprintf("http://127.0.0.1:%d/api/v1/events?account=%s", m.port, m.account)
 		m.state = stateChat
 		m.status = "Connected"
-		return m, tea.Batch(loadContacts(m.port, m.account), listenEvents(m.port, m.account))
+		return m, loadContacts(m.port, m.account)
 
 	case contactsLoadedMsg:
 		debugLog("contactsLoadedMsg count=%d err=%v", len(msg.contacts), msg.err)
@@ -1166,12 +1185,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		saveHistory(m.history)
-		return m, listenEvents(m.port, m.account)
+		return m, nil
 
 	case reactionMsg:
 		debugLog("reactionReceivedMsg src=%s emoji=%s ts=%d remove=%v", msg.source, msg.emoji, msg.targetTimestamp, msg.isRemove)
 		if msg.emoji == "✅" {
-			return m, listenEvents(m.port, m.account)
+			return m, nil
 		}
 		for i := range m.messages {
 			if m.messages[i].Time.UnixMilli() == msg.targetTimestamp {
@@ -1200,7 +1219,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		saveHistory(m.history)
-		return m, listenEvents(m.port, m.account)
+		return m, nil
 
 	case sendResultMsg:
 		if msg.err != nil {
@@ -1235,7 +1254,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.typing = ""
 		}
-		return m, listenEvents(m.port, m.account)
+		return m, nil
 
 	case messageReceivedMsg:
 		debugLog("messageReceivedMsg from=%s text=%s", msg.msg.From, msg.msg.Text)
@@ -1260,7 +1279,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.history[msg.msg.Contact] = append(m.history[msg.msg.Contact], msg.msg)
 		saveHistory(m.history)
-		cmds := []tea.Cmd{listenEvents(m.port, m.account), sendReadReceiptCmd(m.port, m.account, msg.msg.Contact, msg.msg.Time.UnixMilli())}
+		cmds := []tea.Cmd{sendReadReceiptCmd(m.port, m.account, msg.msg.Contact, msg.msg.Time.UnixMilli())}
 		for _, att := range msg.msg.Attachments {
 			if !isAllowedExtension(att.Filename) {
 				m.status = "Restricted file detected and removed: " + att.Filename
@@ -2274,6 +2293,7 @@ func main() {
 	}
 	m := newModel()
 	p := tea.NewProgram(m)
+	eventDeliver = p.Send
 	if _, err := p.Run(); err != nil {
 		fmt.Println("Error:", err)
 		os.Exit(1)
