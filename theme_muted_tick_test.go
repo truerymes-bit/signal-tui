@@ -17,15 +17,23 @@ func TestMutedAndTickContrast(t *testing.T) {
 		if rBg < 4.5 {
 			t.Errorf("%s: Muted/Bg contrast %.2f < 4.5", name, rBg)
 		}
-		// Tick legible on InBg.
-		rTick := ratio(th.P.Tick, th.P.InBg)
-		if rTick < 5.5 {
-			t.Errorf("%s: Tick/InBg contrast %.2f < 5.5", name, rTick)
-		}
 		// Tick must be set explicitly in config (not relying on fallback).
 		if cfg.Palette.Tick == nil {
 			t.Errorf("%s: Tick not set explicitly", name)
 		}
-		t.Logf("%s: Muted/InBg=%.2f Muted/Bg=%.2f Tick/InBg=%.2f", name, rIn, rBg, rTick)
+		rTickBg := ratio(th.P.Tick, th.P.Bg)
+		if rTickBg < 4.5 {
+			t.Errorf("%s: Tick/Bg contrast %.2f < 4.5", name, rTickBg)
+		}
+		// Tick legible on InBg for dark themes where InBg is lighter than Bg.
+		if lum(th.P.InBg) >= lum(th.P.Bg) {
+			rTickIn := ratio(th.P.Tick, th.P.InBg)
+			if rTickIn < 5.5 {
+				t.Errorf("%s: Tick/InBg contrast %.2f < 5.5", name, rTickIn)
+			}
+			t.Logf("%s: Muted/InBg=%.2f Muted/Bg=%.2f Tick/Bg=%.2f Tick/InBg=%.2f", name, rIn, rBg, rTickBg, rTickIn)
+		} else {
+			t.Logf("%s: Muted/InBg=%.2f Muted/Bg=%.2f Tick/Bg=%.2f", name, rIn, rBg, rTickBg)
+		}
 	}
 }

@@ -335,7 +335,7 @@ var NamedThemes = map[string]ThemeConfig{
 			AccentBg: lipgloss.Color("#D4E3EE"),
 			Text:     lipgloss.Color("#073642"),
 			Muted:    lipgloss.Color("#446069"),
-			Tick:     lipgloss.Color("#2f515b"),
+			Tick:     lipgloss.Color("#207c75"),
 			Border:   lipgloss.Color("#93A1A1"),
 			SelBg:    lipgloss.Color("#D4E3EE"),
 			InBg:     lipgloss.Color("#ded9c7"),
