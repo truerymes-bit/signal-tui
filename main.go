@@ -669,12 +669,13 @@ func sendMessageWithAttachment(port int, recipient string, text string, attachme
 			Timestamp int64 `json:"timestamp"`
 		}
 		json.Unmarshal(rpcResp.Result, &result)
-		return sendResultMsg{timestamp: result.Timestamp}
+		return sendResultMsg{timestamp: result.Timestamp, recipient: recipient}
 	}
 }
 
 type sendResultMsg struct {
 	timestamp int64
+	recipient string
 	err       error
 }
 
@@ -1208,19 +1209,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.timestamp != 0 {
-			// update last sent message
-			for i := len(m.messages) - 1; i >= 0; i-- {
-				if m.messages[i].IsMe {
-					m.messages[i].Time = time.UnixMilli(msg.timestamp)
-					m.messages[i].Sent = true
+			// resolve the recipient to a contact number (history is keyed by number)
+			contactNum := msg.recipient
+			for _, c := range m.contacts {
+				if c.UUID == msg.recipient || c.Number == msg.recipient {
+					contactNum = c.Number
 					break
 				}
 			}
-			for c := range m.history {
-				for i := len(m.history[c]) - 1; i >= 0; i-- {
-					if m.history[c][i].IsMe {
-						m.history[c][i].Time = time.UnixMilli(msg.timestamp)
-						m.history[c][i].Sent = true
+			if msgs, ok := m.history[contactNum]; ok {
+				for i := len(msgs) - 1; i >= 0; i-- {
+					if msgs[i].IsMe {
+						msgs[i].Time = time.UnixMilli(msg.timestamp)
+						msgs[i].Sent = true
+						break
+					}
+				}
+				m.history[contactNum] = msgs
+			}
+			if m.selected < len(m.contacts) && m.contacts[m.selected].Number == contactNum {
+				for i := len(m.messages) - 1; i >= 0; i-- {
+					if m.messages[i].IsMe {
+						m.messages[i].Time = time.UnixMilli(msg.timestamp)
+						m.messages[i].Sent = true
 						break
 					}
 				}
